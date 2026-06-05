@@ -59,10 +59,12 @@ orbit-greeter: $(GREETER_OBJ)
 install: all install-service
 	install -d $(DESTDIR)$(SBINDIR)
 	install -d $(DESTDIR)$(LIBEXECDIR)
+	install -d $(DESTDIR)$(BINDIR)
 	install -d $(DESTDIR)$(CONFDIR)
 	install -d $(DESTDIR)$(CONFDIR)/pam.d
 	install -m 755 orbitd $(DESTDIR)$(SBINDIR)/orbitd
 	install -m 755 orbit-greeter $(DESTDIR)$(LIBEXECDIR)/orbit-greeter
+	install -m 755 orbit-status-log $(DESTDIR)$(BINDIR)/orbit-status-log
 	install -m 644 orbit-login.conf $(DESTDIR)$(CONFDIR)/orbit-login.conf
 	ln -sf $(LIBEXECDIR)/orbit-greeter $(DESTDIR)$(BINDIR)/orbit-greeter
 	@echo "Install PAM config: cp pam/orbit-login $(DESTDIR)$(CONFDIR)/pam.d/orbit-login"
@@ -76,6 +78,7 @@ uninstall:
 	rm -f $(DESTDIR)$(SBINDIR)/orbitd
 	rm -f $(DESTDIR)$(LIBEXECDIR)/orbit-greeter
 	rm -f $(DESTDIR)$(BINDIR)/orbit-greeter
+	rm -f $(DESTDIR)$(BINDIR)/orbit-status-log
 	rm -f $(DESTDIR)$(CONFDIR)/orbit-login.conf
 	rm -f $(DESTDIR)$(SYSTEMDDIR)/orbitd.service
 

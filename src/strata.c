@@ -5,48 +5,44 @@
 #include <sys/types.h>
 #include <dirent.h>
 #include <errno.h>
+#include <unistd.h>
 
-#define BRL_PATH "/usr/local/bin/brl"
+static const char *brl_paths[] = {
+    "/bedrock/bin/brl",
+    "/usr/local/bin/brl",
+    NULL
+};
+
+static const char *find_brl(void) {
+    for (int i = 0; brl_paths[i]; i++) {
+        if (access(brl_paths[i], X_OK) == 0)
+            return brl_paths[i];
+    }
+    return NULL;
+}
 
 int strata_list(stratum_t *strata, int max) {
-    FILE *fp;
+    const char *brl = find_brl();
+    if (!brl) return -1;
+
+    char cmd[256];
+    snprintf(cmd, sizeof(cmd), "%s list 2>/dev/null", brl);
+
+    FILE *fp = popen(cmd, "r");
+    if (!fp) return -1;
+
     char line[256];
     int count = 0;
 
-    fp = popen("brl list 2>/dev/null", "r");
-    if (!fp) {
-        fp = popen(BRL_PATH " list 2>/dev/null", "r");
-        if (!fp) return -1;
-    }
-
     while (fgets(line, sizeof(line), fp) && count < max) {
         size_t len = strlen(line);
-        if (len > 0) line[len - 1] = '\0';
+        while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r'))
+            line[--len] = '\0';
 
-        if (line[0] == '\0' || line[0] == ' ' || line[0] == '\t')
-            continue;
+        if (len == 0) continue;
 
-        char *status = NULL;
-        char *name = line;
-
-        if (line[0] == '+' || line[0] == '-') {
-            status = name;
-            name = line + 1;
-            while (*name == ' ' || *name == '\t') name++;
-        }
-
-        char *end = name;
-        while (*end && *end != ' ' && *end != '\t') end++;
-        if (*end) *end = '\0';
-
-        if (strlen(name) == 0) continue;
-
-        snprintf(strata[count].name, sizeof(strata[count].name), "%s", name);
-        if (status && status[0] == '+') {
-            strata[count].enabled = 1;
-        } else {
-            strata[count].enabled = 0;
-        }
+        snprintf(strata[count].name, sizeof(strata[count].name), "%s", line);
+        strata[count].enabled = 1;
         strata[count].hidden = 0;
         count++;
     }
@@ -70,11 +66,12 @@ int strata_list_enabled(stratum_t *strata, int max) {
 }
 
 int strata_which_pid(pid_t pid, char *out, size_t outsz) {
-    char cmd[128];
-    FILE *fp;
+    const char *brl = find_brl();
+    if (!brl) return -1;
 
-    snprintf(cmd, sizeof(cmd), "brl which --pid %d 2>/dev/null", pid);
-    fp = popen(cmd, "r");
+    char cmd[256];
+    snprintf(cmd, sizeof(cmd), "%s which --pid %d 2>/dev/null", brl, pid);
+    FILE *fp = popen(cmd, "r");
     if (!fp) return -1;
 
     if (!fgets(out, outsz, fp)) {
@@ -91,11 +88,12 @@ int strata_which_pid(pid_t pid, char *out, size_t outsz) {
 }
 
 int strata_which_bin(const char *bin, char *out, size_t outsz) {
-    char cmd[256];
-    FILE *fp;
+    const char *brl = find_brl();
+    if (!brl) return -1;
 
-    snprintf(cmd, sizeof(cmd), "brl which --bin %s 2>/dev/null", bin);
-    fp = popen(cmd, "r");
+    char cmd[512];
+    snprintf(cmd, sizeof(cmd), "%s which --bin %s 2>/dev/null", brl, bin);
+    FILE *fp = popen(cmd, "r");
     if (!fp) return -1;
 
     if (!fgets(out, outsz, fp)) {
@@ -107,8 +105,6 @@ int strata_which_bin(const char *bin, char *out, size_t outsz) {
 
     size_t len = strlen(out);
     if (len > 0 && out[len - 1] == '\n') out[len - 1] = '\0';
-
-    if (strcmp(out, "global") == 0) return 0;
 
     return 0;
 }

@@ -11,6 +11,8 @@
 #include <linux/vt.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <pwd.h>
+#include <grp.h>
 
 int display_find_free_vt(int preferred) {
     int fd = open("/dev/tty0", O_RDWR);
@@ -110,7 +112,13 @@ int display_setup_xauth(const char *user, const char *display, orbit_config_t *c
 
     chmod(xauth_path, 0600);
 
-    log_msg(0, "Xauthority set up at %s for display :%s", xauth_path, display);
+    struct passwd *pw = getpwnam(user);
+    if (pw) {
+        chown(xauth_path, pw->pw_uid, pw->pw_gid);
+    }
+
+    log_msg(0, "Xauthority set up at %s for display :%s, owner: %s",
+            xauth_path, display, user ? user : "unknown");
     return 0;
 }
 

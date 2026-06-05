@@ -1,0 +1,4 @@
+obj/
+orbitd
+orbit-greeter
+*.o

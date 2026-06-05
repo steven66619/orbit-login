@@ -1,0 +1,16 @@
+[Unit]
+Description=orbit-login - Bedrock-aware Display Manager
+Documentation=https://github.com/user/orbit-login
+After=systemd-user-sessions.service
+After=plymouth-quit.service
+
+[Service]
+ExecStart=/usr/local/sbin/orbitd --foreground
+ExecReload=/bin/kill -HUP $MAINPID
+Type=simple
+Restart=always
+RestartSec=5
+
+[Install]
+Alias=display-manager.service
+RequiredBy=graphical.target

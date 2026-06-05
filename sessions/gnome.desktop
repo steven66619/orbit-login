@@ -1,0 +1,6 @@
+[Desktop Entry]
+Name=GNOME
+Comment=GNOME Desktop Environment
+Exec=gnome-session
+Type=Application
+X-Stratum=auto

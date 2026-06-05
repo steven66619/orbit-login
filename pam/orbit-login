@@ -1,0 +1,9 @@
+# PAM configuration for orbit-login
+auth     required  pam_unix.so     nullok
+auth     optional  pam_permit.so
+account  required  pam_unix.so
+password required  pam_unix.so     nullok sha512
+session  required  pam_unix.so
+session  optional  pam_logind.so
+session  optional  pam_systemd.so
+session  optional  pam_env.so

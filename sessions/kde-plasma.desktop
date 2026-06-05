@@ -1,0 +1,6 @@
+[Desktop Entry]
+Name=KDE Plasma
+Comment=KDE Plasma Desktop
+Exec=startplasma-wayland
+Type=Application
+X-Stratum=auto

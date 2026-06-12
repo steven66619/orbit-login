@@ -1,3 +1,9 @@
+/* SPDX-License-Identifier: GPL-3.0-only
+ *
+ * orbit-login - display manager for Bedrock Linux
+ * Copyright (C) 2025  Steven Ende
+ */
+
 #ifndef ORBIT_H
 #define ORBIT_H
 
@@ -5,6 +11,7 @@
 #include <unistd.h>
 #include <stdint.h>
 
+#define FAILSAFE_ID "__failsafe__"
 #define MAX_STRATUM_NAME 64
 #define MAX_SESSION_NAME 128
 #define MAX_SESSION_EXEC 512
@@ -101,6 +108,8 @@ int  strata_resolve_path(const char *stratum, const char *path, char *out, size_
 
 int  session_discover(session_t *sessions, int max, const char *session_dir);
 int  session_discover_all_strata(session_t *sessions, int max);
+int  session_add_failsafe(session_t *sessions, int count, int max);
+int  session_is_failsafe(const session_t *sess);
 int  session_launch(const session_t *sess, const char *username, const display_t *disp, orbit_config_t *cfg);
 int  session_read_desktop(const char *path, session_t *sess);
 

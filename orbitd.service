@@ -1,16 +1,20 @@
+# SPDX-License-Identifier: GPL-3.0-only
+#
+# orbit-login - display manager for Bedrock Linux
+# Copyright (C) 2025  Steven Ende
+#
+
 [Unit]
-Description=orbit-login - Bedrock-aware Display Manager
-Documentation=https://github.com/user/orbit-login
-After=systemd-user-sessions.service
-After=plymouth-quit.service
+Description=orbit-login display manager
+Documentation=man:orbitd(1)
+After=systemd-user-sessions.service getty@tty1.service
 
 [Service]
-ExecStart=/usr/local/sbin/orbitd --foreground
+ExecStart=/usr/local/bin/orbitd --foreground
 ExecReload=/bin/kill -HUP $MAINPID
-Type=simple
 Restart=always
-RestartSec=5
+RestartSec=2
+Type=simple
 
 [Install]
 Alias=display-manager.service
-RequiredBy=graphical.target

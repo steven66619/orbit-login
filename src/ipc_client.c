@@ -1,3 +1,9 @@
+/* SPDX-License-Identifier: GPL-3.0-only
+ *
+ * orbit-login - display manager for Bedrock Linux
+ * Copyright (C) 2025  Steven Ende
+ */
+
 #include "orbit.h"
 #include <stdio.h>
 #include <string.h>

@@ -1,3 +1,9 @@
+/* SPDX-License-Identifier: GPL-3.0-only
+ *
+ * orbit-login - display manager for Bedrock Linux
+ * Copyright (C) 2025  Steven Ende
+ */
+
 #include "orbit.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -18,11 +24,10 @@ int display_find_free_vt(int preferred) {
     int fd = open("/dev/tty0", O_RDWR);
     if (fd >= 0) {
         int vt = 0;
-        if (ioctl(fd, VT_OPENQRY, &vt) == 0 && vt > 0) {
-            close(fd);
-            return vt;
-        }
+        int ret;
+        ret = ioctl(fd, VT_OPENQRY, &vt);
         close(fd);
+        if (ret == 0 && vt > 0) return vt;
     }
 
     if (preferred > 0) {
@@ -63,7 +68,11 @@ int display_switch_vt(int vt) {
     }
     if (fd < 0) return -1;
 
-    ioctl(fd, VT_ACTIVATE, vt);
+    if (ioctl(fd, VT_ACTIVATE, vt) < 0) {
+        log_msg(1, "VT_ACTIVATE failed: %s", strerror(errno));
+        close(fd);
+        return -1;
+    }
 
     struct vt_stat vt_state;
     for (int waited = 0; waited < 50; waited++) {
@@ -107,7 +116,7 @@ int display_setup_xauth(const char *user, const char *display, orbit_config_t *c
         snprintf(cmd, sizeof(cmd),
                  "xauth -f '%s' add ':%s' . '$(dd if=/dev/urandom bs=16 count=1 2>/dev/null | od -An -tx1 | tr -d ' \n')' 2>/dev/null",
                  xauth_path, display);
-        ret = system(cmd);
+        system(cmd);
     }
 
     chmod(xauth_path, 0600);
@@ -124,13 +133,14 @@ int display_setup_xauth(const char *user, const char *display, orbit_config_t *c
 
 int display_start_xorg(display_t *disp, orbit_config_t *cfg) {
     pid_t pid;
-    char vt_arg[16];
     char display_arg[16];
     char socket_path[64];
     struct stat st;
 
     if (disp->vt <= 0) {
-        disp->vt = display_find_free_vt(cfg->vt_number > 0 ? cfg->vt_number : 0);
+        int preferred = cfg->vt_number > 0 ? cfg->vt_number : 0;
+        disp->vt = display_find_free_vt(preferred);
+        log_msg(0, "Auto-detected free VT %d for display", disp->vt);
     }
 
     if (disp->display[0] == '\0') {
@@ -141,7 +151,6 @@ int display_start_xorg(display_t *disp, orbit_config_t *cfg) {
 
     display_setup_xauth(cfg->greeter_user, disp->display, cfg);
 
-    snprintf(vt_arg, sizeof(vt_arg), "vt%d", disp->vt);
     snprintf(display_arg, sizeof(display_arg), ":%s", disp->display);
     snprintf(socket_path, sizeof(socket_path), "/tmp/.X11-unix/X%s", disp->display);
 
@@ -154,25 +163,17 @@ int display_start_xorg(display_t *disp, orbit_config_t *cfg) {
 
         setsid();
 
-        int fd = open("/dev/tty0", O_RDWR);
-        if (fd >= 0) {
-            ioctl(fd, VT_LOCKSWITCH, 0);
-            close(fd);
-        }
-
         execlp(cfg->xorg_path, cfg->xorg_path,
                display_arg,
-               vt_arg,
                "-keeptty",
-               "-novtswitch",
+               "-sharevts",
                "-auth", xauth_path,
                (char *)NULL);
 
         execlp("Xorg", "Xorg",
                display_arg,
-               vt_arg,
                "-keeptty",
-               "-novtswitch",
+               "-sharevts",
                "-auth", xauth_path,
                (char *)NULL);
 
@@ -219,10 +220,6 @@ int display_stop_xorg(display_t *disp) {
         kill(disp->xorg_pid, SIGKILL);
         waitpid(disp->xorg_pid, NULL, 0);
         disp->xorg_pid = 0;
-    }
-
-    if (disp->vt > 0) {
-        display_switch_vt(disp->vt);
     }
 
     return 0;

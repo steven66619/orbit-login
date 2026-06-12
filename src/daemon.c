@@ -1,3 +1,9 @@
+/* SPDX-License-Identifier: GPL-3.0-only
+ *
+ * orbit-login - display manager for Bedrock Linux
+ * Copyright (C) 2025  Steven Ende
+ */
+
 #include "orbit.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -22,6 +28,8 @@ static void signal_handler(int sig) {
         child_exited = 1;
         break;
     case SIGHUP:
+        break;
+    default:
         break;
     }
 }
@@ -130,24 +138,43 @@ int main(int argc, char **argv) {
 
     memset(&disp, 0, sizeof(disp));
     disp.vt = cfg.auto_vt ? 0 : cfg.vt_number;
+    if (disp.vt <= 0) {
+        log_msg(1, "Invalid VT %d from config, falling back to auto-detect", disp.vt);
+        disp.vt = 0;
+        cfg.auto_vt = 1;
+    }
+
+    int start_retries = 0;
+    const int max_start_retries = 10;
 
     while (running) {
         if (disp.xorg_pid <= 0) {
+            if (start_retries >= max_start_retries) {
+                log_msg(1, "Failed to start Xorg after %d attempts, giving up", max_start_retries);
+                break;
+            }
             log_msg(0, "Starting Xorg on VT %d...", disp.vt > 0 ? disp.vt : 7);
             if (display_start_xorg(&disp, &cfg) < 0) {
-                log_msg(1, "Failed to start Xorg, retrying in 2 seconds");
+                start_retries++;
+                log_msg(1, "Failed to start Xorg (attempt %d/%d), retrying in 2 seconds",
+                        start_retries, max_start_retries);
                 sleep(2);
                 continue;
             }
-            display_switch_vt(disp.vt);
-            log_msg(0, "Switched to VT %d", disp.vt);
+            log_msg(0, "Display :%s ready on VT %d", disp.display, disp.vt);
         }
 
         if (greeter_pid <= 0) {
+            if (start_retries >= max_start_retries) {
+                log_msg(1, "Failed to start greeter after %d attempts, giving up", max_start_retries);
+                break;
+            }
             log_msg(0, "Starting greeter on display :%s...", disp.display);
             greeter_pid = greeter_start(&disp, &cfg);
             if (greeter_pid < 0) {
-                log_msg(1, "Failed to start greeter, retrying in 1 second");
+                start_retries++;
+                log_msg(1, "Failed to start greeter (attempt %d/%d), retrying in 1 second",
+                        start_retries, max_start_retries);
                 sleep(1);
                 continue;
             }
@@ -155,6 +182,18 @@ int main(int argc, char **argv) {
 
         break;
     }
+
+    if (!running || start_retries >= max_start_retries) {
+        if (srv_fd >= 0) {
+            unlink(SOCKET_PATH);
+            close(srv_fd);
+        }
+        return 1;
+    }
+
+    int xorg_retries = 0;
+    int greeter_retries = 0;
+    const int max_retries = 5;
 
     log_msg(0, "orbitd ready. Waiting for connections on %s", SOCKET_PATH);
 
@@ -169,6 +208,8 @@ int main(int argc, char **argv) {
                     if (WIFEXITED(wstatus) && WEXITSTATUS(wstatus) == 0) {
                         log_msg(0, "Greeter exited normally (session started)");
                         session_active = 1;
+                        xorg_retries = 0;
+                        greeter_retries = 0;
                     } else {
                         log_msg(0, "Greeter exited (status %d), will restart",
                                 WIFEXITED(wstatus) ? WEXITSTATUS(wstatus) : -1);
@@ -184,6 +225,8 @@ int main(int argc, char **argv) {
                     log_msg(0, "Session process exited, returning to greeter");
                     disp.session_pid = 0;
                     session_active = 0;
+                    xorg_retries = 0;
+                    greeter_retries = 0;
                 }
             }
 
@@ -194,31 +237,49 @@ int main(int argc, char **argv) {
                     log_msg(0, "Xorg exited, restarting display");
                     disp.xorg_pid = 0;
                     session_active = 0;
+                    xorg_retries = 0;
                 }
             }
         }
 
         if (disp.xorg_pid <= 0) {
+            if (xorg_retries >= max_retries) {
+                log_msg(1, "Failed to restart Xorg after %d attempts, shutting down", max_retries);
+                break;
+            }
             display_stop_xorg(&disp);
             log_msg(0, "Restarting Xorg...");
             disp.vt = cfg.auto_vt ? 0 : cfg.vt_number;
+            if (disp.vt <= 0) {
+                log_msg(1, "Invalid VT %d from config on restart, falling back to auto-detect", disp.vt);
+                disp.vt = 0;
+            }
             if (display_start_xorg(&disp, &cfg) < 0) {
-                log_msg(1, "Failed to restart Xorg, retrying in 2s");
+                xorg_retries++;
+                log_msg(1, "Failed to restart Xorg (attempt %d/%d), retrying in 2s",
+                        xorg_retries, max_retries);
                 sleep(2);
                 continue;
             }
-            display_switch_vt(disp.vt);
-            log_msg(0, "Switched to VT %d", disp.vt);
+            log_msg(0, "Display :%s ready on VT %d", disp.display, disp.vt);
+            xorg_retries = 0;
         }
 
         if (greeter_pid <= 0 && !session_active) {
+            if (greeter_retries >= max_retries) {
+                log_msg(1, "Failed to start greeter after %d attempts, shutting down", max_retries);
+                break;
+            }
             log_msg(0, "Starting greeter on display :%s...", disp.display);
             greeter_pid = greeter_start(&disp, &cfg);
             if (greeter_pid < 0) {
-                log_msg(1, "Failed to start greeter, retrying in 1s");
+                greeter_retries++;
+                log_msg(1, "Failed to start greeter (attempt %d/%d), retrying in 1s",
+                        greeter_retries, max_retries);
                 sleep(1);
                 continue;
             }
+            greeter_retries = 0;
         }
 
         fd_set rfds;

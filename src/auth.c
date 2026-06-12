@@ -1,9 +1,14 @@
+/* SPDX-License-Identifier: GPL-3.0-only
+ *
+ * orbit-login - display manager for Bedrock Linux
+ * Copyright (C) 2025  Steven Ende
+ */
+
 #include "orbit.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <security/pam_appl.h>
-#include <security/pam_misc.h>
 #include <unistd.h>
 #include <sys/types.h>
 #include <pwd.h>
@@ -12,6 +17,14 @@ struct auth_ctx {
     const char *user;
     const char *pass;
 };
+
+static void auth_conv_free_resp(struct pam_response *resp, int count) {
+    if (!resp) return;
+    for (int i = 0; i < count; i++) {
+        free(resp[i].resp);
+    }
+    free(resp);
+}
 
 static int auth_conv(int nmsg, const struct pam_message **msg,
                      struct pam_response **resp, void *appdata) {
@@ -25,37 +38,45 @@ static int auth_conv(int nmsg, const struct pam_message **msg,
         switch (msg[i]->msg_style) {
         case PAM_PROMPT_ECHO_OFF:
             (*resp)[i].resp = strdup(ctx->pass ? ctx->pass : "");
-            if (!(*resp)[i].resp) return PAM_BUF_ERR;
+            if (!(*resp)[i].resp) {
+                auth_conv_free_resp(*resp, i + 1);
+                *resp = NULL;
+                return PAM_BUF_ERR;
+            }
             break;
         case PAM_PROMPT_ECHO_ON:
             (*resp)[i].resp = strdup(ctx->user ? ctx->user : "");
-            if (!(*resp)[i].resp) return PAM_BUF_ERR;
+            if (!(*resp)[i].resp) {
+                auth_conv_free_resp(*resp, i + 1);
+                *resp = NULL;
+                return PAM_BUF_ERR;
+            }
             break;
         case PAM_ERROR_MSG:
             fprintf(stderr, "PAM: %s\n", msg[i]->msg);
-            (*resp)[i].resp = NULL;
             break;
         case PAM_TEXT_INFO:
-            (*resp)[i].resp = NULL;
             break;
         }
     }
     return PAM_SUCCESS;
 }
 
-static struct pam_conv conv = {
-    auth_conv,
-    NULL
-};
-
 int auth_authenticate(const char *user, const char *pass, const display_t *disp, orbit_config_t *cfg) {
+    (void)disp;
+    (void)cfg;
     pam_handle_t *pamh = NULL;
     int ret;
     struct auth_ctx ctx;
+    struct pam_conv conv;
     const char *service_name = "orbit-login";
+
+    if (!user || !*user) return -1;
+    if (!pass) pass = "";
 
     ctx.user = user;
     ctx.pass = pass;
+    conv.conv = auth_conv;
     conv.appdata_ptr = &ctx;
 
     ret = pam_start(service_name, user, &conv, &pamh);
@@ -87,10 +108,14 @@ int auth_session_open(const char *user, const display_t *disp, orbit_config_t *c
     pam_handle_t *pamh = NULL;
     int ret;
     struct auth_ctx ctx;
+    struct pam_conv conv;
     const char *service_name = "orbit-login";
+
+    if (!user || !*user) return -1;
 
     ctx.user = user;
     ctx.pass = NULL;
+    conv.conv = auth_conv;
     conv.appdata_ptr = &ctx;
 
     ret = pam_start(service_name, user, &conv, &pamh);
@@ -98,11 +123,15 @@ int auth_session_open(const char *user, const display_t *disp, orbit_config_t *c
 
     char display_env[64];
     snprintf(display_env, sizeof(display_env), "DISPLAY=:%s", disp->display);
-    pam_putenv(pamh, display_env);
+    if (pam_putenv(pamh, display_env) != PAM_SUCCESS) {
+        log_msg(1, "pam_putenv DISPLAY failed");
+    }
 
     char xauth_env[256];
     snprintf(xauth_env, sizeof(xauth_env), "XAUTHORITY=%s-%s", cfg->xauth_path, disp->display);
-    pam_putenv(pamh, xauth_env);
+    if (pam_putenv(pamh, xauth_env) != PAM_SUCCESS) {
+        log_msg(1, "pam_putenv XAUTHORITY failed");
+    }
 
     ret = pam_open_session(pamh, 0);
     if (ret != PAM_SUCCESS) {
@@ -116,13 +145,19 @@ int auth_session_open(const char *user, const display_t *disp, orbit_config_t *c
 }
 
 int auth_session_close(const char *user, const display_t *disp, orbit_config_t *cfg) {
+    (void)disp;
+    (void)cfg;
     pam_handle_t *pamh = NULL;
     int ret;
     struct auth_ctx ctx;
+    struct pam_conv conv;
     const char *service_name = "orbit-login";
+
+    if (!user || !*user) return -1;
 
     ctx.user = user;
     ctx.pass = NULL;
+    conv.conv = auth_conv;
     conv.appdata_ptr = &ctx;
 
     ret = pam_start(service_name, user, &conv, &pamh);
@@ -138,13 +173,19 @@ int auth_session_close(const char *user, const display_t *disp, orbit_config_t *
 }
 
 int auth_set_cred(const char *user, const display_t *disp, orbit_config_t *cfg) {
+    (void)disp;
+    (void)cfg;
     pam_handle_t *pamh = NULL;
     int ret;
     struct auth_ctx ctx;
+    struct pam_conv conv;
     const char *service_name = "orbit-login";
+
+    if (!user || !*user) return -1;
 
     ctx.user = user;
     ctx.pass = NULL;
+    conv.conv = auth_conv;
     conv.appdata_ptr = &ctx;
 
     ret = pam_start(service_name, user, &conv, &pamh);

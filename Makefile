@@ -39,7 +39,7 @@ GREETER_OBJ = $(GREETER_SRC:$(SRCDIR)/%.c=$(OBJDIR)/greeter_%.o)
 
 .PHONY: all clean install uninstall
 
-all: orbitd orbit-greeter
+all: orbitd orbit-greeter test
 
 $(OBJDIR):
 	mkdir -p $(OBJDIR)
@@ -82,5 +82,19 @@ uninstall:
 	rm -f $(DESTDIR)$(CONFDIR)/orbit-login.conf
 	rm -f $(DESTDIR)$(SYSTEMDDIR)/orbitd.service
 
+TESTDIR = test
+TEST_BIN = test-runner
+
+$(OBJDIR)/test.o: $(TESTDIR)/test.c $(SRCDIR)/orbit.h $(TESTDIR)/test_runner.h | $(OBJDIR)
+	$(CC) $(_CFLAGS) -c -o $@ $<
+
+$(TEST_BIN): $(OBJDIR)/test.o
+	$(CC) $(_CFLAGS) -o $@ $^ -lpam
+
+test: $(TEST_BIN)
+	./$(TEST_BIN)
+
+.PHONY: test
+
 clean:
-	rm -rf $(OBJDIR) orbitd orbit-greeter
+	rm -rf $(OBJDIR) orbitd orbit-greeter $(TEST_BIN)

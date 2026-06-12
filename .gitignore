@@ -1,4 +1,5 @@
 obj/
 orbitd
 orbit-greeter
+test-runner
 *.o

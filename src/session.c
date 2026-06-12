@@ -1,3 +1,9 @@
+/* SPDX-License-Identifier: GPL-3.0-only
+ *
+ * orbit-login - display manager for Bedrock Linux
+ * Copyright (C) 2025  Steven Ende
+ */
+
 #include "orbit.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -22,7 +28,7 @@ static int parse_desktop_line(const char *line, const char *key, char *out, size
     while (vlen > 0 && (val[vlen - 1] == '\n' || val[vlen - 1] == '\r')) vlen--;
 
     if (vlen >= outsz) vlen = outsz - 1;
-    memcpy(out, val, vlen);
+    memmove(out, val, vlen);
     out[vlen] = '\0';
 
     return 0;
@@ -63,8 +69,6 @@ int session_read_desktop(const char *path, session_t *sess) {
             has_name = 1;
         else if (parse_desktop_line(line, "Exec", sess->exec, sizeof(sess->exec)) == 0)
             has_exec = 1;
-        else if (parse_desktop_line(line, "Type", line, sizeof(line)) == 0) {
-        }
     }
 
     fclose(fp);
@@ -210,6 +214,37 @@ int session_discover_all_strata(session_t *sessions, int max) {
     return count;
 }
 
+static int session_find_terminal(char *out, size_t outsz) {
+    const char *terms[] = {"xterm", "uxterm", "st", "alacritty", "kitty", "foot", "x-terminal-emulator"};
+    for (size_t i = 0; i < sizeof(terms) / sizeof(terms[0]); i++) {
+        char buf[64];
+        snprintf(buf, sizeof(buf), "/usr/bin/%s", terms[i]);
+        if (access(buf, X_OK) == 0) {
+            snprintf(out, outsz, "%s", terms[i]);
+            return 0;
+        }
+    }
+    snprintf(out, outsz, "%s", "xterm");
+    return -1;
+}
+
+int session_add_failsafe(session_t *sessions, int count, int max) {
+    if (count >= max) return count;
+    session_t *fs = &sessions[count];
+    memset(fs, 0, sizeof(*fs));
+    snprintf(fs->id, sizeof(fs->id), "%s", FAILSAFE_ID);
+    snprintf(fs->name, sizeof(fs->name), "Failsafe Terminal");
+    session_find_terminal(fs->exec, sizeof(fs->exec));
+    snprintf(fs->desktop_path, sizeof(fs->desktop_path), "%s", "(built-in)");
+    snprintf(fs->stratum, sizeof(fs->stratum), "native");
+    fs->type = SESSION_X11;
+    return count + 1;
+}
+
+int session_is_failsafe(const session_t *sess) {
+    return strcmp(sess->id, FAILSAFE_ID) == 0;
+}
+
 int session_launch(const session_t *sess, const char *username, const display_t *disp, orbit_config_t *cfg) {
     pid_t pid;
     char display_str[32];
@@ -239,7 +274,7 @@ int session_launch(const session_t *sess, const char *username, const display_t 
         setenv("USER", pw->pw_name, 1);
         setenv("LOGNAME", pw->pw_name, 1);
         setenv("SHELL", pw->pw_shell, 1);
-        chdir(pw->pw_dir);
+        if (chdir(pw->pw_dir) != 0) _exit(126);
 
         char user_xauth[MAX_SESSION_PATH];
         snprintf(user_xauth, sizeof(user_xauth), "%s/.Xauthority", pw->pw_dir);
@@ -247,8 +282,8 @@ int session_launch(const session_t *sess, const char *username, const display_t 
         snprintf(xa_cmd, sizeof(xa_cmd),
                  "xauth -f '%s' extract - ':%s' 2>/dev/null | xauth -f '%s' merge - 2>/dev/null",
                  xauth_path, disp->display, user_xauth);
-        system(xa_cmd);
-        chown(user_xauth, pw->pw_uid, pw->pw_gid);
+        if (system(xa_cmd) != 0) log_msg(1, "Failed to merge xauth for %s", username);
+        if (chown(user_xauth, pw->pw_uid, pw->pw_gid) != 0) log_msg(1, "Failed to chown xauth for %s", username);
         setenv("XAUTHORITY", user_xauth, 1);
     }
 
@@ -256,8 +291,15 @@ int session_launch(const session_t *sess, const char *username, const display_t 
     setenv("XDG_SESSION_CLASS", "user", 1);
     setenv("XDG_CURRENT_DESKTOP", sess->name, 1);
 
-    setgid(pw ? pw->pw_gid : 1000);
-    setuid(pw ? pw->pw_uid : 1000);
+    if (setgid(pw ? pw->pw_gid : 1000) != 0) _exit(126);
+    if (setuid(pw ? pw->pw_uid : 1000) != 0) _exit(126);
+
+    if (session_is_failsafe(sess)) {
+        log_msg(0, "Launching failsafe terminal for '%s'", username);
+        execlp(sess->exec, sess->exec, (char *)NULL);
+        execlp("/usr/bin/xterm", "xterm", (char *)NULL);
+        _exit(127);
+    }
 
     if (strcmp(sess->stratum, "native") != 0 && strcmp(sess->stratum, "global") != 0) {
         char cmd[MAX_SESSION_EXEC + 64];
